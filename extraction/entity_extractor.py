@@ -16,6 +16,7 @@ from app.models.schemas import (
     TableData,
 )
 from app.utils.logging import get_logger
+from feedback.edit_learning import FeedbackMemory
 
 logger = get_logger(__name__)
 
@@ -23,8 +24,13 @@ logger = get_logger(__name__)
 class EntityExtractor:
     """Schema-free document analyzer that infers structure from content."""
 
-    def __init__(self, llm_fallback: Callable[[str], dict] | None = None) -> None:
+    def __init__(
+        self,
+        llm_fallback: Callable[[str], dict] | None = None,
+        feedback_memory: FeedbackMemory | None = None,
+    ) -> None:
         self.llm_fallback = llm_fallback
+        self.feedback_memory = feedback_memory
         self._nlp = None
 
     def _ensure_nlp(self):
@@ -62,12 +68,124 @@ class EntityExtractor:
             metadata=metadata,
         )
 
+        # Dynamically correct extracted outputs using feedback history
+        result = self._apply_feedback_corrections(result)
+
         if self.llm_fallback:
             try:
                 llm_payload = self.llm_fallback(document_text)
                 result = result.model_copy(update=llm_payload)
             except Exception as exc:
                 logger.warning("LLM fallback enrichment failed: %s", exc)
+        return result
+
+    def _apply_feedback_corrections(self, result: DocumentUnderstanding) -> DocumentUnderstanding:
+        if not self.feedback_memory:
+            return result
+
+        records = self.feedback_memory.history()
+        if not records:
+            return result
+
+        # Extract replacement rules from feedback records
+        replacements: list[tuple[str, str]] = []
+        for record in records:
+            if "->" in record.learned_pattern:
+                parts = [part.strip() for part in record.learned_pattern.split("->", maxsplit=1)]
+                if len(parts) == 2 and parts[0] and parts[1]:
+                    if (parts[0], parts[1]) not in replacements:
+                        replacements.append((parts[0], parts[1]))
+            else:
+                orig = record.original.strip()
+                edit = record.edited.strip()
+                if orig and edit and orig != edit:
+                    if (orig, edit) not in replacements:
+                        replacements.append((orig, edit))
+
+        if not replacements:
+            return result
+
+        # 1. Correct document type
+        for source, target in replacements:
+            if result.document_type.strip().lower() == source.lower():
+                result.document_type = target
+                break
+            elif source.lower() in result.document_type.lower():
+                result.document_type = re.sub(re.escape(source), target, result.document_type, flags=re.IGNORECASE)
+
+        # Helper to apply case-insensitive substring replacement
+        def fix_text(text: str) -> str:
+            if not text:
+                return text
+            updated = text
+            for source, target in replacements:
+                try:
+                    updated = re.sub(re.escape(source), target, updated, flags=re.IGNORECASE)
+                except Exception:
+                    updated = updated.replace(source, target)
+            return updated
+
+        # Track processed object IDs to prevent double correction
+        processed_sections = set()
+        processed_key_values = set()
+        processed_entities = set()
+        processed_tables = set()
+
+        # 2. Correct sections
+        def correct_section_node(node: SectionNode):
+            if id(node) in processed_sections:
+                return
+            processed_sections.add(id(node))
+
+            node.title = fix_text(node.title)
+            node.text = fix_text(node.text)
+            node.summary = fix_text(node.summary)
+            for kv in node.key_values:
+                if id(kv) not in processed_key_values:
+                    kv.key = fix_text(kv.key)
+                    if isinstance(kv.value, str):
+                        kv.value = fix_text(kv.value)
+                    processed_key_values.add(id(kv))
+            for ent in node.entities:
+                if id(ent) not in processed_entities:
+                    ent.name = fix_text(ent.name)
+                    ent.value = fix_text(ent.value)
+                    processed_entities.add(id(ent))
+            for table in node.tables:
+                if id(table) not in processed_tables:
+                    table.title = fix_text(table.title)
+                    table.headers = [fix_text(h) for h in table.headers]
+                    table.rows = [[fix_text(cell) for cell in row] for row in table.rows]
+                    for cell in table.cells:
+                        cell.value = fix_text(cell.value)
+                    processed_tables.add(id(table))
+            node.paragraphs = [fix_text(p) for p in node.paragraphs]
+            for sub in node.subsections:
+                correct_section_node(sub)
+
+        for sec in result.sections:
+            correct_section_node(sec)
+
+        # 3. Correct entities
+        for ent in result.entities:
+            if id(ent) not in processed_entities:
+                ent.name = fix_text(ent.name)
+                ent.value = fix_text(ent.value)
+                processed_entities.add(id(ent))
+
+        # 4. Re-discover relationships based on corrected entities to keep them in sync
+        result.relationships = self._discover_relationships(result.entities)
+
+        # 5. Re-generate dynamic schema
+        result.dynamic_schema = self._generate_dynamic_schema(result.sections, result.entities)
+
+        # 6. Re-generate summary
+        result.document_summary = self._summarize_document(result.sections, result.document_type)
+
+        # 7. Update metadata counts
+        result.metadata["entity_count"] = len(result.entities)
+        result.metadata["section_count"] = len(result.sections)
+
         return result
 
     def _build_sections(self, chunks: list[DocumentChunk]) -> list[SectionNode]:
@@ -172,10 +290,17 @@ class EntityExtractor:
             "date": r"\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\b",
             "amount": r"(?:Rs\.?|INR|\$)\s?[\d,]+(?:\.\d+)?",
             "identifier": r"\b[A-Z0-9]{4,}(?:[-\/][A-Z0-9]+)+\b",
+            "email": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
+            "phone": r"\b(?:\+?\d{1,3}[-. ]?)?\(?\d{3}\)?[-. ]?\d{3}[-. ]?\d{4}\b",
         }
         for match in re.finditer(patterns["key_value_candidate"], text):
             key = match.group(1).strip()
             value = match.group(2).strip()
+            # Avoid URL split false positives
+            if key.lower() in ("http", "https") and value.startswith("//"):
+                continue
+            if len(value) > 150:
+                continue
             pair_key = (f"{key}: {value}", "KEY_VALUE")
             if pair_key in seen:
                 continue
@@ -302,10 +427,16 @@ class EntityExtractor:
     def _extract_key_values(self, text: str, chunk_id: str) -> list[DiscoveredField]:
         fields: list[DiscoveredField] = []
         for match in re.finditer(r"([A-Za-z][A-Za-z0-9 \/_-]{1,40})\s*:\s*([^\n]+)", text):
+            key = match.group(1).strip()
+            value = match.group(2).strip()
+            if key.lower() in ("http", "https") and value.startswith("//"):
+                continue
+            if len(value) > 150:
+                continue
             fields.append(
                 DiscoveredField(
-                    key=match.group(1).strip(),
-                    value=match.group(2).strip(),
+                    key=key,
+                    value=value,
                     confidence=0.76,
                     evidence_chunk_ids=[chunk_id],
                 )
@@ -361,7 +492,9 @@ class EntityExtractor:
         if not stripped:
             return ""
         if index == 0:
-            return stripped
+            if len(stripped.split()) <= 12:
+                return stripped
+            return ""
         if stripped.isupper() and len(stripped.split()) <= 8:
             return stripped.title()
         if re.match(r"^\d+(\.\d+)*\s+[A-Z]", stripped):
@@ -373,10 +506,10 @@ class EntityExtractor:
     def _heading_level(self, title: str) -> int:
         if not title:
             return 1
-        if re.match(r"^\d+\.\d+", title):
-            return 2
         if re.match(r"^\d+\.\d+\.\d+", title):
             return 3
+        if re.match(r"^\d+\.\d+", title):
+            return 2
         if title.isupper():
             return 1
         return 1
@@ -398,3 +531,4 @@ class EntityExtractor:
         if not chunks:
             return 0.0
         return round(sum(chunk.confidence for chunk in chunks) / len(chunks), 4)
+

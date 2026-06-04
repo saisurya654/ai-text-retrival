@@ -25,8 +25,8 @@ class LegalMindService:
     def __init__(self) -> None:
         self.settings = get_settings()
         self.processor = PDFProcessor()
-        self.extractor = EntityExtractor()
         self.feedback = FeedbackMemory(self.settings.feedback_store)
+        self.extractor = EntityExtractor(feedback_memory=self.feedback)
         self.generator = DraftGenerator(self.feedback)
         self.vector_store = VectorStore(self.settings.index_dir / "vector_store.json")
         self.evaluator = EvaluationEngine()
