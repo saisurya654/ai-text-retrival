@@ -1,0 +1,18 @@
+{
+  "draft_type": "Adaptive Grounded Draft",
+  "inferred_document_type": "Project Status Report",
+  "summary": {
+    "title": "Summary",
+    "content": "For the request 'Summarize project risks and actions.', the uploaded material is best understood as 'Project Status Report'. Grounded evidence suggests: This document summarizes project progress, risks, and next actions.",
+    "evidence_chunk_ids": [
+      "doc_sample001_p1_c1_s1"
+    ],
+    "traces": [
+      {
+        "claim": "Vendor dependency remains unresolved. Final security approval is pending.",
+        "source_chunk": "doc_sample001_p1_c1_s1",
+        "page": 1
+      }
+    ]
+  }
+}

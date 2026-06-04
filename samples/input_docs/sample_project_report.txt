@@ -1,0 +1,16 @@
+PROJECT STATUS REPORT
+
+Prepared By: Meera Shah
+Date: 12/05/2025
+Project: Cloud Migration Program
+
+1. Executive Summary
+The migration program is 80 percent complete. Infrastructure cutover has finished for the first two regions.
+
+2. Risks
+Vendor dependency remains unresolved. Final security approval is pending.
+
+3. Action Items
+Owner | Task | Due Date
+Ravi | Obtain vendor sign-off | 20/05/2025
+Nina | Complete security review | 22/05/2025

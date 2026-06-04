@@ -1,0 +1,31 @@
+{
+  "document_id": "doc_sample001",
+  "document_type": "Project Status Report",
+  "document_summary": "This document appears to be 'Project Status Report' and is organized around sections such as Project Status Report, 1. Executive Summary, 2. Risks, 3. Action Items.",
+  "confidence": 0.93,
+  "dynamic_schema": {
+    "schema_name": "dynamic_document_schema",
+    "inferred_fields": [
+      "project_status_report",
+      "prepared_by",
+      "date",
+      "project",
+      "executive_summary",
+      "risks",
+      "action_items"
+    ],
+    "field_descriptions": {
+      "prepared_by": "Dynamically discovered field derived from document content: Prepared By",
+      "project": "Dynamically discovered field derived from document content: Project"
+    },
+    "confidence": 0.78
+  },
+  "sections": [],
+  "entities": [],
+  "relationships": [],
+  "metadata": {
+    "page_count": 1,
+    "section_count": 4,
+    "entity_count": 6
+  }
+}

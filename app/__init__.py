@@ -1,0 +1,1 @@
+"""LegalMind AI application package."""

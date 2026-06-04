@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+data/
+.env
+.env.local
+.DS_Store
+Thumbs.db
+*.pyc
+*.pyo
+*.pyd
+*.log
