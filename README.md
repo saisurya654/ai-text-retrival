@@ -305,10 +305,44 @@ The draft generator uses section-level citations and claims matching:
 }
 ```
 
-## Notes
+## Assumptions and Tradeoffs
+
+### 1. Document Ingestion & OCR
+- **Assumption**: Digital PDFs are clean enough for direct text extraction using `pdfplumber`. Noisy, image-only, or scanned PDFs are converted to image pages first, which are then parsed via `EasyOCR`.
+- **Tradeoff**: Running OCR on every page can be CPU/memory intensive. The system uses a fast-path strategy: if direct text extraction succeeds, it skips OCR; otherwise, it triggers OpenCV preprocessing (denoising, grayscaling, thresholding) followed by EasyOCR fallback.
+
+### 2. Extraction & NLP Heuristics
+- **Assumption**: The system can run without active internet or expensive API keys. Thus, it utilizes a local `spaCy` parser with heuristic regex rules as a robust fallback.
+- **Tradeoff**: Heuristics are faster and private, but less flexible than LLMs. We offset this limitation by building a feedback-driven extraction post-processor that corrects patterns directly based on human-in-the-loop edits.
+
+### 3. Vector Retrieval & Grounding Control
+- **Assumption**: Dense embeddings using `SentenceTransformers` and `FAISS` are sufficient to capture semantic sections.
+- **Tradeoff**: To prevent hallucinations, if the semantic search similarity is below a certain threshold or document understanding confidence is low, the draft generator explicitly logs a "Grounding Risk" in the draft sections instead of making unsupported assumptions.
+
+### 4. Feedback & Dynamic Correction Loop
+- **Assumption**: Operator modifications can be generalized into terminology replacement rules (e.g., standardizing a name, project classification, or document type).
+- **Tradeoff**: Simple string mappings are fast and deterministic but might over-correct. We mitigated this by applying object-ID tracking and precise word/context checks during feedback execution.
+
+---
+
+## Evaluation Approach and Results
+
+We measure the platform's accuracy and robustness using an automated `EvaluationEngine` in `evaluation/metrics.py`.
+
+### Metrics Evaluated:
+1. **OCR Accuracy**: Mean confidence score returned by the OCR layer.
+2. **Extraction Accuracy**: Ratio of successfully populated semantic fields vs total potential fields.
+3. **Precision & Recall @ K**: Verifies search relevance of the vector database passages.
+4. **Groundedness & Citation Coverage**: Measures the proportion of draft recommendations backed by page/chunk references.
+5. **Improvement Rate**: Checks how well the system adapts as feedback events increase.
+
+To inspect the latest evaluation metrics, run the backend and frontend, navigate to **Analytics Dashboard**, and click **Refresh Evaluation**.
+
+---
+
+## Development Notes
 
 - `.venv` is intentionally ignored and should never be committed.
 - Runtime-generated files under `data/` are ignored.
-- The current implementation uses heuristic section discovery with optional NLP enhancement.
 - The architecture is ready for stronger layout parsers and multimodal models later without changing the external workflow.
 

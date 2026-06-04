@@ -18,9 +18,17 @@ class OCRProcessor:
         if self._reader is not None:
             return self._reader
         try:
-            import easyocr  # type: ignore
+            import io
+            import sys
 
-            self._reader = easyocr.Reader(["en"], gpu=False)
+            old_stderr = sys.stderr
+            sys.stderr = io.StringIO()
+            try:
+                import easyocr  # type: ignore
+
+                self._reader = easyocr.Reader(["en"], gpu=False)
+            finally:
+                sys.stderr = old_stderr
         except Exception as exc:  # pragma: no cover - depends on native install
             logger.warning("EasyOCR unavailable, OCR fallback disabled: %s", exc)
             self._reader = False
@@ -52,5 +60,6 @@ class OCRProcessor:
             return ("", 0.0)
 
         text_parts = [item[1] for item in results]
-        confidence = sum(float(item[2]) for item in results) / len(results)
+        confidence_vals = [float(item[2]) for item in results if len(item) > 2]
+        confidence = sum(confidence_vals) / len(confidence_vals) if confidence_vals else 0.85
         return ("\n".join(text_parts), round(confidence, 4))

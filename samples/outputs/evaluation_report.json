@@ -1,5 +1,5 @@
 {
-  "ocr_accuracy": 0.98,
+  "ocr_accuracy": 0.9374,
   "extraction_accuracy": 1.0,
   "recall_at_k": 0.1,
   "precision_at_k": 0.0,

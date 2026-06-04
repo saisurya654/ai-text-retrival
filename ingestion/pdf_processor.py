@@ -37,7 +37,27 @@ class PDFProcessor:
                     confidence = 0.98 if raw_text.strip() else 0.0
 
                     if not raw_text.strip():
-                        logger.info("No embedded text on page %s, OCR fallback would be required.", page_index)
+                        logger.info("No embedded text on page %s, attempting OCR fallback.", page_index)
+                        try:
+                            # Render page to image and run OCR
+                            img = page.to_image(resolution=150)
+                            temp_image_path = file_path.parent / f"{file_path.name}_p{page_index}.png"
+                            img.save(str(temp_image_path), format="PNG")
+                            ocr_text, ocr_conf = self.ocr.extract_text(temp_image_path)
+                            if ocr_text.strip():
+                                raw_text = ocr_text
+                                confidence = ocr_conf
+                            
+                            # Cleanup temp image files
+                            if temp_image_path.exists():
+                                temp_image_path.unlink()
+                            
+                            # Cleanup OpenCV preprocessed image if created
+                            preprocessed_path = temp_image_path.with_name(f"{temp_image_path.stem}_preprocessed{temp_image_path.suffix}")
+                            if preprocessed_path.exists():
+                                preprocessed_path.unlink()
+                        except Exception as ocr_exc:
+                            logger.warning("OCR fallback failed on page %s of %s: %s", page_index, file_path, ocr_exc)
 
                     cleaned_text = self._clean_text(raw_text)
                     chunks.extend(
